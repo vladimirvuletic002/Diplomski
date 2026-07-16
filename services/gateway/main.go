@@ -1,0 +1,137 @@
+package main
+
+import (
+	"context"
+	"embed"
+	"errors"
+	"fmt"
+	"html/template"
+	"log/slog"
+	"math/rand/v2"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+// version is baked in at build time with -ldflags "-X main.version=v1.0.0" so it
+// always matches the image tag it shipped in. The VERSION env var overrides it
+// for local development, where there is no build pipeline to do the baking.
+var version = "dev"
+
+//go:embed ui/index.html
+var uiFS embed.FS
+
+const (
+	shutdownTimeout   = 15 * time.Second
+	readHeaderTimeout = 5 * time.Second
+)
+
+type app struct {
+	cfg         config
+	log         *slog.Logger
+	aggregation *aggregationClient
+	ui          *template.Template
+	// randFloat is injectable so fault injection is deterministic under test.
+	randFloat func() float64
+}
+
+func main() {
+	if err := run(); err != nil {
+		slog.Error("fatal", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+
+	ui, err := template.ParseFS(uiFS, "ui/index.html")
+	if err != nil {
+		return fmt.Errorf("parse ui template: %w", err)
+	}
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.logLevel}))
+	a := &app{
+		cfg:         cfg,
+		log:         logger,
+		aggregation: newAggregationClient(cfg.aggregationURL, cfg.upstreamTimeout),
+		ui:          ui,
+		randFloat:   rand.Float64,
+	}
+
+	srv := &http.Server{
+		Addr:              ":" + cfg.port,
+		Handler:           a.routes(),
+		ReadHeaderTimeout: readHeaderTimeout,
+	}
+
+	serveErr := make(chan error, 1)
+	go func() {
+		logger.Info("listening",
+			"service", cfg.serviceName,
+			"version", cfg.version,
+			"port", cfg.port,
+			"aggregation_url", cfg.aggregationURL,
+			"error_rate", cfg.errorRate,
+			"extra_latency", cfg.extraLatency.String(),
+		)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- err
+		}
+	}()
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	select {
+	case err := <-serveErr:
+		return fmt.Errorf("listen: %w", err)
+	case <-ctx.Done():
+		stop()
+	}
+
+	// Draining matters for the rollout: pods are terminated every time a canary
+	// scales down, and cutting in-flight requests would surface as 5xx that the
+	// analysis reads as a bad release.
+	logger.Info("shutdown signal received, draining connections")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("graceful shutdown: %w", err)
+	}
+
+	logger.Info("shutdown complete")
+	return nil
+}
+
+func (a *app) routes() http.Handler {
+	mux := http.NewServeMux()
+
+	// /api/summary is this service's business traffic and the signal the canary
+	// analysis reads. The dashboard at / is deliberately left out of both metrics
+	// and fault injection: a faulty gateway release must still serve the page,
+	// otherwise the very UI meant to show the failure goes blank.
+	mux.Handle("GET /{$}", http.HandlerFunc(a.handleUI))
+	mux.Handle("GET /api/summary", a.instrument("/api/summary", a.injectFaults(http.HandlerFunc(a.handleSummary))))
+	mux.Handle("GET /healthz", http.HandlerFunc(a.handleHealthz))
+	mux.Handle("GET /metrics", promhttp.Handler())
+
+	return mux
+}
+
+func (a *app) handleUI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := a.ui.Execute(w, map[string]string{
+		"Service": a.cfg.serviceName,
+		"Version": a.cfg.version,
+	}); err != nil {
+		a.log.Error("render ui", "error", err)
+	}
+}

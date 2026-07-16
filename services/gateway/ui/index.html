@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="gateway-version" content="{{.Version}}">
+<title>Energy Metering — Live Version Traffic</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #151b31;
+    --panel-2: #1c2340;
+    --text: #e8ecf8;
+    --muted: #8f9bc0;
+    --line: #2a3358;
+    --ok: #22c55e;
+    --err: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  h1 { font-size: 26px; margin: 0; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); font-size: 14px; }
+  .controls { display: flex; gap: 8px; }
+  button {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:hover { background: #263056; }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .stat .value { font-size: 30px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .services { display: grid; gap: 14px; }
+  .service {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 18px;
+  }
+  .service.canarying { border-color: #4d5ea8; box-shadow: 0 0 0 1px #4d5ea855; }
+  .service-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px; gap: 12px;
+  }
+  .service-name { font-size: 18px; font-weight: 620; }
+  .badge {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: #c8d2ff; background: #2b3663; border: 1px solid #4d5ea8;
+    padding: 3px 8px; border-radius: 999px;
+  }
+  .rows { display: grid; gap: 8px; }
+  .row { display: grid; grid-template-columns: 120px 1fr 96px; align-items: center; gap: 12px; }
+  .version { display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .dot { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .track { background: var(--panel-2); border-radius: 6px; height: 26px; overflow: hidden; }
+  .bar { height: 100%; border-radius: 6px; transition: width 220ms ease; }
+  .pct { text-align: right; font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 620; }
+  .count { color: var(--muted); font-size: 12px; font-weight: 400; }
+  .strip-wrap { margin-top: 20px; }
+  .strip-title { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .strip { display: flex; gap: 3px; flex-wrap: wrap; }
+  .tick { width: 10px; height: 22px; border-radius: 2px; }
+  .tick.err { outline: 2px solid var(--err); outline-offset: -2px; }
+  .empty { color: var(--muted); font-style: italic; }
+  footer { margin-top: 24px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body data-gateway-version="{{.Version}}">
+
+<header>
+  <div>
+    <h1>Energy Metering — Live Version Traffic</h1>
+    <div class="sub">Polling <code>/api/summary</code> every 500 ms. Each response reports the version of every service that handled it.</div>
+  </div>
+  <div class="controls">
+    <button id="toggle">Pause</button>
+    <button id="reset">Reset</button>
+  </div>
+</header>
+
+<div class="stats">
+  <div class="stat"><div class="label">Requests</div><div class="value" id="total">0</div></div>
+  <div class="stat"><div class="label">Errors</div><div class="value" id="errors" style="color:var(--err)">0</div></div>
+  <div class="stat"><div class="label">Success rate</div><div class="value" id="success">—</div></div>
+  <div class="stat"><div class="label">Window</div><div class="value" id="window">0</div></div>
+</div>
+
+<div class="services" id="services">
+  <div class="empty">Waiting for first response…</div>
+</div>
+
+<div class="strip-wrap">
+  <div class="strip-title">Last 60 requests — <span id="strip-service">…</span></div>
+  <div class="strip" id="strip"></div>
+</div>
+
+<footer>
+  Percentages are computed over a rolling window of the last 200 responses, so the traffic split tracks the
+  current canary weight rather than the cumulative average.
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var POLL_MS = 500;
+  var WINDOW = 200;
+  var STRIP = 60;
+
+  // Colours are assigned in order of first appearance rather than hashed, so
+  // distinct versions can never collide onto the same colour — the stable
+  // version always takes the first slot, the canary the second.
+  var PALETTE = ["#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#06b6d4", "#ec4899", "#84cc16", "#f97316"];
+  var colours = new Map();
+  function colourFor(version) {
+    if (!colours.has(version)) {
+      colours.set(version, PALETTE[colours.size % PALETTE.length]);
+    }
+    return colours.get(version);
+  }
+
+  var samples = [];
+  var totals = { requests: 0, errors: 0 };
+  var running = true;
+  var timer = null;
+
+  // The chain shortens when a service fails to answer, so the topology is
+  // remembered from the longest chain seen rather than read off the latest
+  // sample — otherwise a single error would blank out the panels of every
+  // service behind it, precisely when they matter most.
+  var knownOrder = [];
+
+  var el = {
+    total: document.getElementById("total"),
+    errors: document.getElementById("errors"),
+    success: document.getElementById("success"),
+    window: document.getElementById("window"),
+    services: document.getElementById("services"),
+    strip: document.getElementById("strip"),
+    stripService: document.getElementById("strip-service"),
+    toggle: document.getElementById("toggle"),
+    reset: document.getElementById("reset")
+  };
+
+  function record(chain, ok) {
+    totals.requests++;
+    if (!ok) totals.errors++;
+    samples.push({ chain: chain, ok: ok });
+    if (samples.length > WINDOW) samples.shift();
+    if (chain.length > knownOrder.length) {
+      knownOrder = chain.map(function (h) { return h.service; });
+    }
+  }
+
+  async function poll() {
+    try {
+      var res = await fetch("/api/summary", { cache: "no-store" });
+      var body = await res.json();
+      record(body.chain || [], res.ok);
+    } catch (e) {
+      // A failed fetch still counts: an unreachable gateway is a failed request.
+      record([], false);
+    }
+    render();
+  }
+
+  // serviceOrder returns services in call order.
+  function serviceOrder() {
+    return knownOrder;
+  }
+
+  function tally(service) {
+    var counts = new Map();
+    var total = 0;
+    samples.forEach(function (s) {
+      s.chain.forEach(function (hop) {
+        if (hop.service !== service) return;
+        counts.set(hop.version, (counts.get(hop.version) || 0) + 1);
+        total++;
+      });
+    });
+    return { counts: counts, total: total };
+  }
+
+  function renderService(service) {
+    var t = tally(service);
+    var versions = Array.from(t.counts.keys()).sort();
+    var canarying = versions.length > 1;
+
+    var node = document.createElement("div");
+    node.className = "service" + (canarying ? " canarying" : "");
+
+    var head = document.createElement("div");
+    head.className = "service-head";
+    var name = document.createElement("div");
+    name.className = "service-name";
+    name.textContent = service;
+    head.appendChild(name);
+    if (canarying) {
+      var badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = versions.length + " versions live";
+      head.appendChild(badge);
+    }
+    node.appendChild(head);
+
+    var rows = document.createElement("div");
+    rows.className = "rows";
+    versions.forEach(function (v) {
+      var count = t.counts.get(v);
+      var pct = t.total ? (count / t.total) * 100 : 0;
+
+      var row = document.createElement("div");
+      row.className = "row";
+
+      var label = document.createElement("div");
+      label.className = "version";
+      var dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = colourFor(v);
+      label.appendChild(dot);
+      label.appendChild(document.createTextNode(v));
+      row.appendChild(label);
+
+      var track = document.createElement("div");
+      track.className = "track";
+      var bar = document.createElement("div");
+      bar.className = "bar";
+      bar.style.width = pct.toFixed(1) + "%";
+      bar.style.background = colourFor(v);
+      track.appendChild(bar);
+      row.appendChild(track);
+
+      var pctEl = document.createElement("div");
+      pctEl.className = "pct";
+      pctEl.textContent = pct.toFixed(0) + "%";
+      var countEl = document.createElement("div");
+      countEl.className = "count";
+      countEl.textContent = count + " reqs";
+      pctEl.appendChild(countEl);
+      row.appendChild(pctEl);
+
+      rows.appendChild(row);
+    });
+    node.appendChild(rows);
+    return node;
+  }
+
+  // focusService picks the service to colour the strip by: the one currently
+  // serving the most distinct versions, i.e. the one mid-rollout.
+  function focusService(order) {
+    var best = order[order.length - 1] || null;
+    var bestCount = 0;
+    order.forEach(function (s) {
+      var n = tally(s).counts.size;
+      if (n > bestCount) { bestCount = n; best = s; }
+    });
+    return best;
+  }
+
+  function renderStrip(service) {
+    el.strip.textContent = "";
+    el.stripService.textContent = service || "…";
+    samples.slice(-STRIP).forEach(function (s) {
+      var hop = s.chain.find(function (h) { return h.service === service; });
+      var tick = document.createElement("div");
+      tick.className = "tick" + (s.ok ? "" : " err");
+      tick.style.background = hop ? colourFor(hop.version) : "#3a4570";
+      tick.title = (hop ? hop.version : "no response") + (s.ok ? "" : " — error");
+      el.strip.appendChild(tick);
+    });
+  }
+
+  function render() {
+    el.total.textContent = totals.requests;
+    el.errors.textContent = totals.errors;
+    el.window.textContent = samples.length;
+
+    var ok = samples.filter(function (s) { return s.ok; }).length;
+    el.success.textContent = samples.length
+      ? ((ok / samples.length) * 100).toFixed(1) + "%"
+      : "—";
+    el.success.style.color = samples.length && ok / samples.length < 0.95
+      ? "var(--err)"
+      : "var(--ok)";
+
+    var order = serviceOrder();
+    el.services.textContent = "";
+    if (!order.length) {
+      var empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "No successful response yet — is aggregation-service reachable?";
+      el.services.appendChild(empty);
+    } else {
+      order.forEach(function (s) { el.services.appendChild(renderService(s)); });
+    }
+
+    renderStrip(focusService(order));
+  }
+
+  function start() { timer = setInterval(poll, POLL_MS); poll(); }
+  function stop() { clearInterval(timer); timer = null; }
+
+  el.toggle.addEventListener("click", function () {
+    running = !running;
+    el.toggle.textContent = running ? "Pause" : "Resume";
+    if (running) { start(); } else { stop(); }
+  });
+
+  el.reset.addEventListener("click", function () {
+    samples = [];
+    totals = { requests: 0, errors: 0 };
+    knownOrder = [];
+    colours.clear();
+    render();
+  });
+
+  start();
+})();
+</script>
+</body>
+</html>

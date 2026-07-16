@@ -1,0 +1,15 @@
+# Build output
+bin/
+*.exe
+
+# Local demo runtime state (scripts/demo-local-canary.sh)
+.run/
+
+# Test / coverage output
+*.out
+coverage.html
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
