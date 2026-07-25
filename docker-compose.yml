@@ -1,0 +1,88 @@
+# Local development stack — the three services, one version each.
+#
+# This is deliberately NOT a canary setup. Running two versions side by side and
+# splitting traffic between them is Argo Rollouts' job (Phase 4); for a local
+# preview of that, use scripts/demo-local-canary.sh.
+#
+#   docker compose up --build     start everything
+#   docker compose down           stop and remove
+#
+# Then open http://localhost:8080
+
+name: diplomski
+
+services:
+  metering-service:
+    build:
+      context: ./services/metering-service
+      args:
+        # Baked into the binary at build time so the running service reports the
+        # same version as the image tag. Overriding VERSION at runtime is a
+        # local-dev-only escape hatch and is intentionally not used here.
+        VERSION: v1.0.0
+    image: ghcr.io/vladimirvuletic002/diplomski/metering-service:v1.0.0
+    environment:
+      PORT: 8081
+      LOG_LEVEL: info
+      # Fault injection stays off by default. To make this service faulty without
+      # touching the others, recreate just it with the variable set:
+      #   ERROR_RATE=0.3 docker compose up -d --force-recreate metering-service
+      # The image is unchanged — a faulty release is configuration, never a
+      # separate build. Restore it with the same command minus the variable.
+      ERROR_RATE: ${ERROR_RATE:-0}
+      EXTRA_LATENCY_MS: ${EXTRA_LATENCY_MS:-0}
+    # No published port: reachable only from inside the compose network, so the
+    # gateway is the single entry point (API Gateway pattern).
+    expose:
+      - "8081"
+
+  aggregation-service:
+    build:
+      context: ./services/aggregation-service
+      args:
+        VERSION: v1.1.0
+    image: ghcr.io/vladimirvuletic002/diplomski/aggregation-service:v1.1.0
+    environment:
+      PORT: 8082
+      LOG_LEVEL: info
+      # Addressed by compose DNS, not localhost. In the cluster this becomes a
+      # Service name; the code needs no change either way because the upstream is
+      # configuration rather than a hardcoded host.
+      METERING_URL: http://metering-service:8081
+      UPSTREAM_TIMEOUT_MS: 2000
+      ERROR_RATE: ${ERROR_RATE:-0}
+      EXTRA_LATENCY_MS: ${EXTRA_LATENCY_MS:-0}
+    expose:
+      - "8082"
+    depends_on:
+      - metering-service
+
+  gateway:
+    build:
+      context: ./services/gateway
+      args:
+        VERSION: v1.0.0
+    image: ghcr.io/vladimirvuletic002/diplomski/gateway:v1.0.0
+    environment:
+      PORT: 8080
+      LOG_LEVEL: info
+      AGGREGATION_URL: http://aggregation-service:8082
+      UPSTREAM_TIMEOUT_MS: 2000
+      ERROR_RATE: ${ERROR_RATE:-0}
+      EXTRA_LATENCY_MS: ${EXTRA_LATENCY_MS:-0}
+    # The only port published to the host — everything enters through the gateway.
+    ports:
+      - "8080:8080"
+    depends_on:
+      - aggregation-service
+
+# There are deliberately no healthcheck blocks. distroless carries no shell or
+# curl, so a compose healthcheck would require adding a health subcommand to each
+# binary purely to satisfy local tooling. It would buy nothing: upstream calls are
+# made per request rather than at startup, so a service that starts before its
+# upstream returns 502 briefly and then recovers on its own. Kubernetes probes are
+# unaffected — the kubelet performs httpGet from outside the container and is
+# configured against /healthz in Phase 4.
+#
+# depends_on above therefore only orders container startup; it does not wait for
+# readiness, and nothing here needs it to.

@@ -3,12 +3,13 @@
 Bachelor's thesis project: three microservices promoted through canary releases with
 metric-driven automated rollback (Argo CD + Argo Rollouts + Prometheus on Kubernetes).
 
-> Status: **Phase 1** — services run locally with `go run`.
-> Docker (Phase 2) and the Kubernetes cluster (Phase 3+) are not wired up yet.
+> Status: **Phase 2** — services run locally with `go run` or as containers via Docker Compose.
+> The Kubernetes cluster (Phase 3+) is not wired up yet.
 
 ## Requirements
 
-- Go 1.26.5 or newer
+- Docker (for the container workflow)
+- Go 1.26.5 or newer (for running from source and for the tests)
 - `python3` and `lsof` (only for the local canary demo script)
 
 ## Services
@@ -23,7 +24,41 @@ Call chain: `gateway → aggregation-service → metering-service`
 
 Each service is its own Go module, so build and test commands run from that service's directory.
 
-## Running locally
+## Running with Docker Compose
+
+The quickest way to run the whole system:
+
+```bash
+docker compose up --build
+```
+
+Then open <http://localhost:8080>.
+
+Only the gateway publishes a port. metering-service and aggregation-service are reachable only
+from inside the compose network, so all traffic enters through the gateway.
+
+Each image is built from a multi-stage Dockerfile onto `distroless/static`, giving ~20 MB images
+with no shell or package manager. The version is baked in at build time from `build.args.VERSION`,
+so a container always reports the version of the image tag it shipped in.
+
+To make a service faulty — same image, configuration only, no rebuild:
+
+```bash
+ERROR_RATE=0.3 docker compose up -d --force-recreate metering-service   # 30% of its requests fail
+docker compose up -d --force-recreate metering-service                  # back to healthy
+```
+
+`EXTRA_LATENCY_MS` works the same way. Stop everything with `docker compose down`.
+
+Building a single image by hand:
+
+```bash
+docker build --build-arg VERSION=v2.0.0 \
+  -t ghcr.io/vladimirvuletic002/diplomski/metering-service:v2.0.0 \
+  services/metering-service
+```
+
+## Running from source
 
 Start each service in its own terminal:
 

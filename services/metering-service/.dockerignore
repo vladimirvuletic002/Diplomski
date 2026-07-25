@@ -1,0 +1,13 @@
+# The build context is this service directory only (see docker-compose.yml).
+# Excluding files the build does not need keeps the context small and avoids
+# invalidating layer caches when they change.
+
+Dockerfile
+.dockerignore
+
+# Tests run in CI and locally via `go test`, never inside the image build.
+*_test.go
+
+# Local build output, should never exist here but is cheap to exclude.
+bin/
+*.out
