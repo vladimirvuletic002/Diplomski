@@ -1,0 +1,25 @@
+# Overrides for the Traefik chart. See CLAUDE.md §9-§10.
+
+# kind maps host 80/443 onto the node container, so Traefik must bind those
+# ports on the node itself. There is no LoadBalancer implementation in kind.
+ports:
+  web:
+    hostPort: 80
+  websecure:
+    hostPort: 443
+
+service:
+  type: ClusterIP
+
+providers:
+  # kubernetesCRD serves TraefikService, which is what Argo Rollouts adjusts to
+  # shift canary weight.
+  kubernetesCRD:
+    enabled: true
+  kubernetesIngress:
+    enabled: true
+
+metrics:
+  prometheus:
+    serviceMonitor:
+      enabled: true

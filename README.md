@@ -3,14 +3,51 @@
 Bachelor's thesis project: three microservices promoted through canary releases with
 metric-driven automated rollback (Argo CD + Argo Rollouts + Prometheus on Kubernetes).
 
-> Status: **Phase 2** — services run locally with `go run` or as containers via Docker Compose.
-> The Kubernetes cluster (Phase 3+) is not wired up yet.
+> Status: **Phase 3** — the Kubernetes cluster and platform are scripted and reproducible.
+> The application manifests (Rollout, TraefikService, AnalysisTemplate) arrive in Phase 4.
 
 ## Requirements
 
-- Docker (for the container workflow)
+- Docker (for the container workflow and the cluster)
+- `kind`, `kubectl`, `helm` (for the cluster)
 - Go 1.26.5 or newer (for running from source and for the tests)
 - `python3` and `lsof` (only for the local canary demo script)
+
+## Kubernetes cluster
+
+One command creates the cluster and installs the whole platform:
+
+```bash
+./scripts/bootstrap.sh up
+```
+
+That produces a single-node [kind](https://kind.sigs.k8s.io) cluster running Kubernetes 1.36 with:
+
+| Namespace | Component | Role |
+|---|---|---|
+| `traefik` | Traefik Proxy v3.7.9 | Traffic entry; canary weighting |
+| `argo-rollouts` | Argo Rollouts v1.9.1 | Canary strategy and automated rollback |
+| `monitoring` | kube-prometheus-stack 87.21.0 | Metrics the rollout analysis acts on |
+| `argocd` | Argo CD v3.4.5 | GitOps reconciliation |
+| `energy` | the three services | Empty until Phase 4 |
+
+The script is idempotent — re-running `up` reuses an existing cluster and reinstalls in place.
+
+```bash
+./scripts/bootstrap.sh status        # what is running, and which images are loaded
+./scripts/bootstrap.sh load          # rebuild the service images and reload them
+./scripts/bootstrap.sh ui argocd     # also: grafana | prometheus | rollouts
+./scripts/bootstrap.sh down          # delete the cluster
+```
+
+The cluster is reachable at <http://localhost>; until an application route exists, that
+correctly returns 404 from Traefik.
+
+Service images are built locally and side-loaded with `kind load docker-image` rather than
+pulled from a registry, so manifests must set `imagePullPolicy: IfNotPresent`.
+
+> Traefik replaces the NGINX Ingress Controller, which was retired in March 2026. Argo Rollouts
+> drives Traefik natively through the `TraefikService` CRD, with no plugin required.
 
 ## Services
 
@@ -131,7 +168,7 @@ http_requests_total{method="GET",route="/",service="metering-service",status="50
 `scripts/demo-local-canary.sh` runs metering-service `v1.0.0` and `v2.0.0` side by side behind a
 traffic splitter, so the dashboard can be seen splitting traffic between two versions.
 
-> This is a **development aid**, not the thesis demo. It stands in for the NGINX ingress, and the
+> This is a **development aid**, not the thesis demo. It stands in for the cluster ingress, and the
 > weight is set by hand. In the real system (Phase 4) Argo Rollouts sets the weight, advances it
 > automatically, and aborts on a bad release with no human involved.
 

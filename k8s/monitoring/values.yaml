@@ -1,0 +1,28 @@
+# Overrides for the kube-prometheus-stack chart. See CLAUDE.md §9-§10.
+
+alertmanager:
+  enabled: false
+
+grafana:
+  enabled: true
+  adminPassword: admin
+  defaultDashboardsTimezone: browser
+
+prometheus:
+  prometheusSpec:
+    # Chart default is true, which restricts discovery to monitors labelled with
+    # this Helm release name; unlabelled ones are then ignored without any error.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+    retention: 24h
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 2Gi
