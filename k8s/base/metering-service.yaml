@@ -1,0 +1,136 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: metering-service
+  namespace: energy
+  labels:
+    # Read by the analysis via fieldRef so the query targets the canary's version.
+    # CI updates this alongside the image tag on release.
+    version: v2.0.0
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: metering-service
+  template:
+    metadata:
+      labels:
+        app: metering-service
+    spec:
+      containers:
+        - name: metering-service
+          image: ghcr.io/vladimirvuletic002/diplomski/metering-service:v2.0.0
+          # Images are side-loaded with `kind load`, never pushed to a registry
+          # the cluster can reach.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            - name: PORT
+              value: "8081"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+  strategy:
+    canary:
+      canaryService: metering-service-canary
+      stableService: metering-service-stable
+      trafficRouting:
+        traefik:
+          weightedTraefikServiceName: metering-service-weighted
+      # Runs for the whole rollout rather than as a gate between steps, so a
+      # failure at any weight aborts, not only at checkpoints.
+      analysis:
+        templates:
+          - templateName: success-rate
+        startingStep: 1
+        args:
+          - name: service
+            value: metering-service
+          - name: version
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.labels['version']
+      steps:
+        - setWeight: 10
+        - pause: {duration: 30s}
+        - setWeight: 25
+        - pause: {duration: 30s}
+        - setWeight: 50
+        - pause: {duration: 30s}
+        - setWeight: 100
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metering-service-stable
+  namespace: energy
+spec:
+  selector:
+    app: metering-service
+  ports:
+    - name: http
+      port: 8081
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metering-service-canary
+  namespace: energy
+spec:
+  selector:
+    app: metering-service
+  ports:
+    - name: http
+      port: 8081
+      targetPort: http
+---
+apiVersion: traefik.io/v1alpha1
+kind: TraefikService
+metadata:
+  name: metering-service-weighted
+  namespace: energy
+spec:
+  weighted:
+    # The weight field is deliberately absent. Argo Rollouts writes it at runtime;
+    # committing a value would make Argo CD see drift and revert the weight
+    # mid-rollout, fighting the Rollouts controller for the same field.
+    services:
+      - name: metering-service-stable
+        port: 8081
+      - name: metering-service-canary
+        port: 8081
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: metering-service
+  namespace: energy
+spec:
+  # Selects pods directly rather than through the stable/canary Services, which
+  # would scrape a pod twice once both Services select it and double-count in
+  # rate().
+  selector:
+    matchLabels:
+      app: metering-service
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics

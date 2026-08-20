@@ -167,10 +167,21 @@ install_rollouts() {
   kubectl apply -n argo-rollouts -f \
     "https://github.com/argoproj/argo-rollouts/releases/download/${ARGO_ROLLOUTS_VERSION}/install.yaml" \
     >/dev/null
+  # v1.9.1 defaults to Traefik v2's API group (traefik.containo.us), which Traefik
+  # v3 no longer serves. Without this the controller cannot find the
+  # TraefikService and every rollout fails with TrafficRoutingError. Strategic
+  # merge, not JSON merge: the latter replaces the container instead of merging.
+  kubectl patch deploy argo-rollouts -n argo-rollouts --type=strategic -p '{
+    "spec": {"template": {"spec": {"containers": [{
+      "name": "argo-rollouts",
+      "args": ["--traefik-api-group=traefik.io", "--traefik-api-version=traefik.io/v1alpha1"]
+    }]}}}
+  }' >/dev/null
+
   kubectl wait --for=condition=available deploy/argo-rollouts \
     -n argo-rollouts --timeout=240s >/dev/null 2>&1 \
     || die "the Argo Rollouts controller did not become available — check: kubectl get pods -n argo-rollouts"
-  ok "Rollout, AnalysisTemplate and AnalysisRun types registered"
+  ok "Rollout types registered; controller pointed at Traefik v3 API group"
 }
 
 install_monitoring() {

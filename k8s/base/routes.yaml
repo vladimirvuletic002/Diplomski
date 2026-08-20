@@ -1,0 +1,51 @@
+# Traefik routing. See CLAUDE.md §10 (2026-08-04, 2026-08-05).
+
+# Strips /metering before forwarding, so metering-service still serves at "/".
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-metering
+  namespace: energy
+spec:
+  stripPrefix:
+    prefixes:
+      - /metering
+---
+# aggregation-service calls http://traefik.traefik.svc.cluster.local/metering,
+# so the request passes through Traefik and lands on the weighted TraefikService
+# whose weights Argo Rollouts controls. Higher priority than the gateway's
+# catch-all route below.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: metering-service
+  namespace: energy
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: PathPrefix(`/metering`)
+      priority: 20
+      middlewares:
+        - name: strip-metering
+      services:
+        - name: metering-service-weighted
+          kind: TraefikService
+---
+# The single entry point: http://localhost reaches the gateway.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: gateway
+  namespace: energy
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: PathPrefix(`/`)
+      priority: 10
+      services:
+        - name: gateway
+          port: 8080

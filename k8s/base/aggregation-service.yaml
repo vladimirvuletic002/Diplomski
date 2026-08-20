@@ -1,0 +1,83 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: aggregation-service
+  namespace: energy
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: aggregation-service
+  template:
+    metadata:
+      labels:
+        app: aggregation-service
+    spec:
+      containers:
+        - name: aggregation-service
+          image: ghcr.io/vladimirvuletic002/diplomski/aggregation-service:v1.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8082
+          env:
+            - name: PORT
+              value: "8082"
+            # Routed through Traefik rather than straight to a ClusterIP, so the
+            # canary weights on metering-service apply to this service-to-service
+            # traffic. A direct ClusterIP call would bypass the weighting entirely
+            # and the canary would never receive a request.
+            - name: METERING_URL
+              value: "http://traefik.traefik.svc.cluster.local/metering"
+            - name: UPSTREAM_TIMEOUT_MS
+              value: "2000"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+  strategy:
+    canary:
+      steps:
+        - setWeight: 50
+        - pause: {duration: 20s}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggregation-service
+  namespace: energy
+spec:
+  selector:
+    app: aggregation-service
+  ports:
+    - name: http
+      port: 8082
+      targetPort: http
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: aggregation-service
+  namespace: energy
+spec:
+  selector:
+    matchLabels:
+      app: aggregation-service
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics

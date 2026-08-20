@@ -1,0 +1,81 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: gateway
+  namespace: energy
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      containers:
+        - name: gateway
+          image: ghcr.io/vladimirvuletic002/diplomski/gateway:v1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            # Straight to the ClusterIP: aggregation-service is not canaried, so
+            # there is no weighting to apply and no reason to add a Traefik hop.
+            - name: AGGREGATION_URL
+              value: "http://aggregation-service:8082"
+            - name: UPSTREAM_TIMEOUT_MS
+              value: "2000"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+  strategy:
+    canary:
+      steps:
+        - setWeight: 50
+        - pause: {duration: 20s}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: energy
+spec:
+  selector:
+    app: gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: gateway
+  namespace: energy
+spec:
+  selector:
+    matchLabels:
+      app: gateway
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics

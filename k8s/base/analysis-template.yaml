@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: success-rate
+  namespace: energy
+spec:
+  args:
+    - name: service
+    - name: version
+  metrics:
+    - name: success-rate
+      # Prometheus scrapes every 15s; without a delay the first measurements run
+      # before the canary has produced any samples and return no data.
+      initialDelay: 30s
+      interval: 15s
+      successCondition: result[0] >= 0.95
+      # Tolerates one bad measurement, aborts on the second.
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          # Filtering on version as well as service is what makes this work. Over
+          # the whole service, a canary failing every request at 10% weight still
+          # reads 0.90 and never crosses the threshold.
+          query: |
+            sum(rate(http_requests_total{service="{{args.service}}",version="{{args.version}}",status!~"5.."}[1m]))
+            /
+            sum(rate(http_requests_total{service="{{args.service}}",version="{{args.version}}"}[1m]))
