@@ -70,7 +70,10 @@ spec:
                 fieldPath: metadata.labels['version']
       steps:
         - setWeight: 10
-        - pause: {duration: 30s}
+        # Longest soak at the lowest weight: this is where a bad release is
+        # cheapest to catch, so the analysis gets time to reach a verdict before
+        # any more traffic is exposed to it.
+        - pause: {duration: 60s}
         - setWeight: 25
         - pause: {duration: 30s}
         - setWeight: 50
