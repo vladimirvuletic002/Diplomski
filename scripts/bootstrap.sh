@@ -35,6 +35,11 @@ ARGO_ROLLOUTS_VERSION="v1.9.1"
 ARGOCD_VERSION="v3.4.5"
 KPS_CHART_VERSION="87.21.0"
 
+# Must match the Application's repoURL exactly, .git suffix included: Argo CD
+# keys credentials by URL and treats a differing string as another repository.
+GIT_REPO_URL="https://github.com/vladimirvuletic002/Diplomski.git"
+GIT_REPO_USER="vladimirvuletic002"
+
 # service:tag pairs built from services/<name> and side-loaded into the cluster.
 # metering-service is built twice so the canary demo has a second version to
 # promote; the two images differ only by the version baked into them.
@@ -211,6 +216,39 @@ install_argocd() {
     >/dev/null
   wait_for_pods argocd 7
   ok "Argo CD installed"
+  configure_repo_credential
+}
+
+# The repository is private, so Argo CD needs a token to read it. The token is
+# supplied by the operator and never committed; without this step it is added
+# through the UI and lost on every cluster rebuild.
+configure_repo_credential() {
+  # shellcheck source=/dev/null
+  [ -f "$REPO_ROOT/.env.local" ] && . "$REPO_ROOT/.env.local"
+
+  if [ -z "${ARGOCD_REPO_TOKEN:-}" ]; then
+    warn "ARGOCD_REPO_TOKEN is not set — Argo CD cannot read the private repository."
+    warn "Put it in .env.local (git-ignored) as ARGOCD_REPO_TOKEN=github_pat_... and re-run '$0 up'."
+    return 0
+  fi
+
+  # Fed through stdin rather than --from-literal so the token never appears in
+  # the process list.
+  kubectl apply -f - >/dev/null <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: repo-diplomski
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+stringData:
+  type: git
+  url: $GIT_REPO_URL
+  username: $GIT_REPO_USER
+  password: $ARGOCD_REPO_TOKEN
+EOF
+  ok "repository credential configured for $GIT_REPO_URL"
 }
 
 build_and_load_images() {
@@ -350,6 +388,8 @@ case "${1:-}" in
   load)   cmd_load ;;
   status) cmd_status ;;
   ui)     shift; cmd_ui "${1:-}" ;;
+  repo-credential)
+          require_tools; wait_for_api; configure_repo_credential ;;
   down)   cmd_down ;;
   *)
     cat <<EOF
@@ -360,6 +400,9 @@ Creates the Kubernetes cluster and platform for the thesis demonstration.
   $0 load      rebuild the service images and reload them into the cluster
   $0 status    show what is running
   $0 ui <x>    port-forward a UI: argocd | grafana | prometheus | rollouts
+  $0 repo-credential
+               (re)create the Argo CD credential for the private repository,
+               reading ARGOCD_REPO_TOKEN from the environment or .env.local
   $0 down      delete the cluster
 
 Safe to re-run: 'up' reuses an existing cluster and reinstalls in place.

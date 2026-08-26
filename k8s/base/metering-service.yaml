@@ -113,14 +113,21 @@ metadata:
   namespace: energy
 spec:
   weighted:
-    # The weight field is deliberately absent. Argo Rollouts writes it at runtime;
-    # committing a value would make Argo CD see drift and revert the weight
-    # mid-rollout, fighting the Rollouts controller for the same field.
+    # These weights are placeholders only. Argo Rollouts overwrites them at
+    # runtime, and the Argo CD Application ignores the field
+    # (.spec.weighted.services[].weight) so a sync keeps the live value.
+    #
+    # The field has to be present here even though it is ignored: the API server
+    # treats this array as atomic, so a sync replaces it entirely, and Argo CD
+    # can only preserve a live value for a field its desired manifest also
+    # declares.
     services:
       - name: metering-service-stable
         port: 8081
+        weight: 100
       - name: metering-service-canary
         port: 8081
+        weight: 0
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor

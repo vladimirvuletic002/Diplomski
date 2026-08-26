@@ -13,3 +13,6 @@ coverage.html
 .DS_Store
 .idea/
 .vscode/
+
+# Local secrets (Argo CD repository token) — never committed
+.env.local
