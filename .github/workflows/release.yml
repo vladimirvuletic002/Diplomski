@@ -1,0 +1,115 @@
+name: release
+
+# Service-scoped tags, e.g. metering-service/v3.1.0, so each service versions
+# independently. The tag names both what to build and what to release.
+on:
+  push:
+    tags:
+      - '*/v*'
+
+# Two tags for the same service must not bump the manifest concurrently.
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # commit the manifest bump back to main
+  packages: write   # push the image to ghcr.io
+
+env:
+  # Lowercase on purpose: ghcr.io rejects uppercase in image paths, and the
+  # repository is named Diplomski.
+  REGISTRY: ghcr.io/vladimirvuletic002/diplomski
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse the tag
+        id: tag
+        run: |
+          SERVICE="${GITHUB_REF_NAME%/*}"
+          VERSION="${GITHUB_REF_NAME##*/}"
+          if [ ! -d "services/$SERVICE" ]; then
+            echo "::error::no such service: services/$SERVICE (tag was $GITHUB_REF_NAME)"
+            exit 1
+          fi
+          if [ ! -f "k8s/base/$SERVICE.yaml" ]; then
+            echo "::error::no manifest at k8s/base/$SERVICE.yaml"
+            exit 1
+          fi
+          echo "service=$SERVICE" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing $SERVICE $VERSION"
+
+      # The cluster this targets runs on arm64 (kind on Apple Silicon) while the
+      # runner is amd64, so a single-arch image would not start there.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: services/${{ steps.tag.outputs.service }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ steps.tag.outputs.service }}:${{ steps.tag.outputs.version }}
+          # The version is baked into the binary so what a container reports can
+          # never drift from the tag it shipped in.
+          build-args: VERSION=${{ steps.tag.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Bump the manifest and commit
+        env:
+          SERVICE: ${{ steps.tag.outputs.service }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The tag checkout is detached; the bump belongs on main.
+          git fetch origin main
+          git checkout -B main origin/main
+
+          FILE="k8s/base/$SERVICE.yaml"
+
+          # Both fields must move together. The version label is what the
+          # AnalysisTemplate reads through fieldRef to decide which version to
+          # measure: bump only the image and the analysis scores the previous,
+          # healthy release and passes however broken the canary is.
+          sed -i -E "s|(image: ${REGISTRY//./\\.}/${SERVICE}:).*|\1${VERSION}|" "$FILE"
+          sed -i -E "s|^([[:space:]]{4}version: ).*|\1${VERSION}|" "$FILE"
+
+          if ! grep -q "image: $REGISTRY/$SERVICE:$VERSION" "$FILE"; then
+            echo "::error::image bump did not apply to $FILE"; exit 1
+          fi
+          if ! grep -qE "^[[:space:]]{4}version: $VERSION\$" "$FILE"; then
+            echo "::error::version label bump did not apply to $FILE"; exit 1
+          fi
+
+          if git diff --quiet -- "$FILE"; then
+            echo "manifest already at $VERSION; nothing to commit"
+            exit 0
+          fi
+
+          # Authored as the repository owner rather than github-actions[bot], so
+          # the project keeps a single contributor.
+          git config user.name "vladimirvuletic002"
+          git config user.email "148571127+vladimirvuletic002@users.noreply.github.com"
+          git add "$FILE"
+          git commit -m "Release $SERVICE $VERSION
+
+          Image and version label bumped by the release workflow for tag
+          $GITHUB_REF_NAME. Argo CD syncs this commit and Argo Rollouts
+          promotes it through the canary steps."
+          # Safe from re-triggering this workflow: it fires on tags only.
+          git push origin main

@@ -3,6 +3,11 @@ kind: Rollout
 metadata:
   name: aggregation-service
   namespace: energy
+  labels:
+    # Bumped with the image by the release workflow. Only read by an
+    # AnalysisTemplate when this service is canaried, but present on every
+    # service so the workflow can treat them uniformly.
+    version: v1.1.0
 spec:
   replicas: 2
   revisionHistoryLimit: 3
