@@ -6,7 +6,7 @@ metadata:
   labels:
     # Read by the analysis via fieldRef so the query targets the canary's version.
     # CI updates this alongside the image tag on release.
-    version: v2.0.0
+    version: v3.1.0
 spec:
   replicas: 2
   revisionHistoryLimit: 3
@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: metering-service
-          image: ghcr.io/vladimirvuletic002/diplomski/metering-service:v2.0.0
+          image: ghcr.io/vladimirvuletic002/diplomski/metering-service:v3.1.0
           # Images are side-loaded with `kind load`, never pushed to a registry
           # the cluster can reach.
           imagePullPolicy: IfNotPresent
