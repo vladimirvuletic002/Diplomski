@@ -16,3 +16,6 @@ coverage.html
 
 # Local secrets (Argo CD repository token) — never committed
 .env.local
+
+# Velero S3 credentials for the local MinIO — generated, never committed
+k8s/velero/credentials-velero

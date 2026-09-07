@@ -3,8 +3,8 @@
 Bachelor's thesis project: three microservices promoted through canary releases with
 metric-driven automated rollback (Argo CD + Argo Rollouts + Prometheus on Kubernetes).
 
-> Status: **Phase 3** — the Kubernetes cluster and platform are scripted and reproducible.
-> The application manifests (Rollout, TraefikService, AnalysisTemplate) arrive in Phase 4.
+> Status: **implementation complete** — services, cluster, progressive delivery, CI/CD,
+> automated rollback and backup/restore all work end to end. Remaining work is the thesis text.
 
 ## Requirements
 
@@ -29,7 +29,7 @@ That produces a single-node [kind](https://kind.sigs.k8s.io) cluster running Kub
 | `argo-rollouts` | Argo Rollouts v1.9.1 | Canary strategy and automated rollback |
 | `monitoring` | kube-prometheus-stack 87.21.0 | Metrics the rollout analysis acts on |
 | `argocd` | Argo CD v3.4.5 | GitOps reconciliation |
-| `energy` | the three services | Empty until Phase 4 |
+| `energy` | the three services | Rollouts, weighted TraefikService, analysis |
 
 The script is idempotent — re-running `up` reuses an existing cluster and reinstalls in place.
 
@@ -43,8 +43,9 @@ The script is idempotent — re-running `up` reuses an existing cluster and rein
 The cluster is reachable at <http://localhost>; until an application route exists, that
 correctly returns 404 from Traefik.
 
-Service images are built locally and side-loaded with `kind load docker-image` rather than
-pulled from a registry, so manifests must set `imagePullPolicy: IfNotPresent`.
+`bootstrap.sh` side-loads locally built images with `kind load docker-image`, so manifests set
+`imagePullPolicy: IfNotPresent`. A release driven by CI instead pushes to ghcr.io and the cluster
+pulls from there — the packages are public, so no pull secret is needed.
 
 > Traefik replaces the NGINX Ingress Controller, which was retired in March 2026. Argo Rollouts
 > drives Traefik natively through the `TraefikService` CRD, with no plugin required.
@@ -205,6 +206,37 @@ Argo Rollouts is what turns this observation into an automatic rollback, in Phas
 ./scripts/demo-local-canary.sh status   # what is running, and the current weight
 ./scripts/demo-local-canary.sh stop     # stop everything
 ```
+
+## Release demos (on the cluster)
+
+```bash
+./scripts/demo-good-release.sh   # v1.0.0 -> v2.0.0, canary promotes
+./scripts/demo-bad-release.sh    # faulty v3.0.0, analysis aborts and rolls back
+```
+
+Both reset to a known baseline first, so they are safe to re-run.
+
+A release can also be driven the way it is in production — push a service-scoped tag
+and GitHub Actions builds, pushes to ghcr.io and commits the manifest bump, which
+Argo CD then syncs:
+
+```bash
+git tag metering-service/v3.2.0 && git push origin metering-service/v3.2.0
+```
+
+## Backup and restore
+
+Optional; installs MinIO as an in-cluster S3 backend plus Velero.
+
+```bash
+./scripts/setup-velero.sh          # install (adds ~400 MiB)
+./scripts/demo-backup-restore.sh   # backup, destroy the namespace, restore
+./scripts/setup-velero.sh status
+```
+
+The demo restores two things: the `energy` namespace, and the Argo CD repository
+credential — which is deliberately kept out of Git and therefore cannot be recovered
+from it.
 
 Ports used: 8080 gateway, 8081 stable, 8082 aggregation, 8083 canary, 8090 splitter.
 Logs and built binaries go to `.run/` (git-ignored). Re-running `start` is safe — it stops any
