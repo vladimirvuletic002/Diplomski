@@ -4,9 +4,6 @@ metadata:
   name: aggregation-service
   namespace: energy
   labels:
-    # Bumped with the image by the release workflow. Only read by an
-    # AnalysisTemplate when this service is canaried, but present on every
-    # service so the workflow can treat them uniformly.
     version: v1.1.0
 spec:
   replicas: 2
@@ -29,10 +26,8 @@ spec:
           env:
             - name: PORT
               value: "8082"
-            # Routed through Traefik rather than straight to a ClusterIP, so the
-            # canary weights on metering-service apply to this service-to-service
-            # traffic. A direct ClusterIP call would bypass the weighting entirely
-            # and the canary would never receive a request.
+            # Through Traefik, not a ClusterIP, so metering's canary weights apply here too. 
+            # A direct call would bypass the weighting and the canary would never see a request
             - name: METERING_URL
               value: "http://traefik.traefik.svc.cluster.local/metering"
             - name: UPSTREAM_TIMEOUT_MS

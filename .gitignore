@@ -2,9 +2,6 @@
 bin/
 *.exe
 
-# Local demo runtime state (scripts/demo-local-canary.sh)
-.run/
-
 # Test / coverage output
 *.out
 coverage.html

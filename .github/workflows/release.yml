@@ -1,7 +1,7 @@
 name: release
 
-# Service-scoped tags, e.g. metering-service/v3.1.0, so each service versions
-# independently. The tag names both what to build and what to release.
+# Service-scoped tags (metering-service/v3.1.0) so services version independently.
+# The tag names both what to build and what to release.
 on:
   push:
     tags:
@@ -17,8 +17,6 @@ permissions:
   packages: write   # push the image to ghcr.io
 
 env:
-  # Lowercase on purpose: ghcr.io rejects uppercase in image paths, and the
-  # repository is named Diplomski.
   REGISTRY: ghcr.io/vladimirvuletic002/diplomski
 
 jobs:
@@ -46,8 +44,8 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Releasing $SERVICE $VERSION"
 
-      # The cluster this targets runs on arm64 (kind on Apple Silicon) while the
-      # runner is amd64, so a single-arch image would not start there.
+      # The runner is amd64, the target cluster arm64 — a single-arch image
+      # pushes fine and then fails to start, long after CI reports green.
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
@@ -64,8 +62,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ env.REGISTRY }}/${{ steps.tag.outputs.service }}:${{ steps.tag.outputs.version }}
-          # The version is baked into the binary so what a container reports can
-          # never drift from the tag it shipped in.
+          # Baked into the binary, so what a container reports cannot drift from
+          # the tag it shipped in.
           build-args: VERSION=${{ steps.tag.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -82,10 +80,9 @@ jobs:
 
           FILE="k8s/base/$SERVICE.yaml"
 
-          # Both fields must move together. The version label is what the
-          # AnalysisTemplate reads through fieldRef to decide which version to
-          # measure: bump only the image and the analysis scores the previous,
-          # healthy release and passes however broken the canary is.
+          # Both fields must move together. The analysis reads the version label
+          # to decide what to measure, so bumping only the image would score the
+          # previous, healthy release — passing however broken the canary is.
           sed -i -E "s|(image: ${REGISTRY//./\\.}/${SERVICE}:).*|\1${VERSION}|" "$FILE"
           sed -i -E "s|^([[:space:]]{4}version: ).*|\1${VERSION}|" "$FILE"
 
@@ -101,8 +98,8 @@ jobs:
             exit 0
           fi
 
-          # Authored as the repository owner rather than github-actions[bot], so
-          # the project keeps a single contributor.
+          # Authored as the owner, not github-actions[bot], to keep the project
+          # to a single contributor.
           git config user.name "vladimirvuletic002"
           git config user.email "148571127+vladimirvuletic002@users.noreply.github.com"
           git add "$FILE"

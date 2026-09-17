@@ -9,11 +9,8 @@
 #   ./scripts/bootstrap.sh ui <x>    open a UI (argocd | grafana | prometheus | rollouts)
 #   ./scripts/bootstrap.sh down      delete the cluster
 #
-# `up` is idempotent: re-running it against an existing cluster reinstalls the
-# platform in place rather than failing, so it is safe to run at any time.
-#
-# Every version below is pinned. A thesis has to be reproducible months later,
-# and "latest" is not a version.
+# `up` is idempotent — it reinstalls in place against an existing cluster.
+# Every version below is pinned; "latest" is not a version.
 
 set -euo pipefail
 
@@ -24,7 +21,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLUSTER_NAME="diplomski"
 APP_NAMESPACE="energy"
 
-# Traefik replaces the retired ingress-nginx. Argo Rollouts drives it natively
+# Argo Rollouts drives it natively
 # through the TraefikService CRD — no plugin required.
 TRAEFIK_CHART_VERSION="41.1.1"
 
@@ -40,9 +37,8 @@ KPS_CHART_VERSION="87.21.0"
 GIT_REPO_URL="https://github.com/vladimirvuletic002/Diplomski.git"
 GIT_REPO_USER="vladimirvuletic002"
 
-# service:tag pairs built from services/<name> and side-loaded into the cluster.
-# metering-service is built twice so the canary demo has a second version to
-# promote; the two images differ only by the version baked into them.
+# Built from services/<name> and side-loaded. metering-service is built twice so
+# the canary demo has something to promote to; only the baked version differs.
 IMAGES=(
   "metering-service:v1.0.0"
   "metering-service:v2.0.0"
@@ -73,10 +69,8 @@ cluster_exists() {
   kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"
 }
 
-# Docker Desktop stops the node container whenever the host sleeps or Docker
-# restarts. The cluster itself survives, but the API server needs a few seconds
-# to answer again, and every kubectl call fails meanwhile. Waiting here turns a
-# confusing "connection refused" into a short pause.
+# The node container stops whenever the host sleeps. The cluster survives, but
+# the API needs a few seconds — this turns "connection refused" into a pause.
 wait_for_api() {
   local tries=${1:-90}
   for _ in $(seq 1 "$tries"); do
@@ -88,11 +82,9 @@ wait_for_api() {
 
 # Waits until at least one pod matching a selector is Ready.
 #
-# `kubectl wait --for=condition=ready pod --selector=...` cannot be used on its
-# own here: on a freshly created cluster the pod does not exist yet when the
-# command runs, and kubectl treats "no matching resources" as an immediate error
-# rather than something to wait for. Polling handles both the appearing and the
-# becoming-ready phases.
+# `kubectl wait` alone will not do: on a fresh cluster the pod does not exist yet
+# and kubectl treats "no matching resources" as an error rather than as something
+# to wait for. Polling covers both appearing and becoming ready.
 wait_for_ready_pod() {
   local ns="$1" selector="$2" tries="${3:-60}"
   for _ in $(seq 1 "$tries"); do
@@ -120,14 +112,13 @@ wait_for_pods() {
     fi
     sleep 4
   done
-  # Reporting success while pods are still broken would be worse than failing:
-  # the next phase would start against a half-installed platform.
+  # Failing beats reporting success — the next step would run against a
+  # half-installed platform.
   die "$ns did not become ready in time — check: kubectl get pods -n $ns"
 }
 
-# Create only if absent. Piping a dry-run manifest into `apply` would also be
-# idempotent, but it warns noisily about a missing last-applied-configuration
-# annotation on namespaces that were originally created imperatively.
+# Create only if absent. A dry-run manifest piped into `apply` is idempotent too,
+# but warns noisily about the missing last-applied-configuration annotation.
 ensure_namespace() {
   kubectl get namespace "$1" >/dev/null 2>&1 || kubectl create namespace "$1" >/dev/null
 }
@@ -172,10 +163,9 @@ install_rollouts() {
   kubectl apply -n argo-rollouts -f \
     "https://github.com/argoproj/argo-rollouts/releases/download/${ARGO_ROLLOUTS_VERSION}/install.yaml" \
     >/dev/null
-  # v1.9.1 defaults to Traefik v2's API group (traefik.containo.us), which Traefik
-  # v3 no longer serves. Without this the controller cannot find the
-  # TraefikService and every rollout fails with TrafficRoutingError. Strategic
-  # merge, not JSON merge: the latter replaces the container instead of merging.
+  # v1.9.1 defaults to Traefik v2's API group, which v3 no longer serves — without
+  # this every rollout fails with TrafficRoutingError. Strategic merge, not JSON
+  # merge: the latter replaces the container and drops its image.
   kubectl patch deploy argo-rollouts -n argo-rollouts --type=strategic -p '{
     "spec": {"template": {"spec": {"containers": [{
       "name": "argo-rollouts",
@@ -194,8 +184,6 @@ install_monitoring() {
   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null 2>&1 || true
   helm repo update prometheus-community >/dev/null 2>&1
 
-  # upgrade --install rather than install, so re-running does not fail on an
-  # existing release.
   helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
     --namespace monitoring --create-namespace \
     --version "$KPS_CHART_VERSION" \
@@ -208,9 +196,8 @@ install_monitoring() {
 install_argocd() {
   info "Installing Argo CD ($ARGOCD_VERSION)"
   ensure_namespace argocd
-  # Server-side apply is required: the ApplicationSet CRD is larger than the
-  # 256 KB limit on the last-applied-configuration annotation that a normal
-  # client-side apply would try to write.
+  # Server-side apply is required: the ApplicationSet CRD exceeds the 256 KB
+  # limit on the annotation a client-side apply would write.
   kubectl apply --server-side --force-conflicts -n argocd -f \
     "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml" \
     >/dev/null
@@ -219,9 +206,8 @@ install_argocd() {
   configure_repo_credential
 }
 
-# The repository is private, so Argo CD needs a token to read it. The token is
-# supplied by the operator and never committed; without this step it is added
-# through the UI and lost on every cluster rebuild.
+# The repository is private, so Argo CD needs a token to read it. Never
+# committed — added by hand instead, it is lost on every cluster rebuild.
 configure_repo_credential() {
   # shellcheck source=/dev/null
   [ -f "$REPO_ROOT/.env.local" ] && . "$REPO_ROOT/.env.local"
@@ -232,8 +218,7 @@ configure_repo_credential() {
     return 0
   fi
 
-  # Fed through stdin rather than --from-literal so the token never appears in
-  # the process list.
+  # Through stdin, not --from-literal, so the token never enters the process list.
   kubectl apply -f - >/dev/null <<EOF
 apiVersion: v1
 kind: Secret
@@ -257,8 +242,9 @@ build_and_load_images() {
     local svc="${entry%%:*}" tag="${entry##*:}"
     local image="$REGISTRY/$svc:$tag"
     docker build --quiet --build-arg "VERSION=$tag" -t "$image" "$REPO_ROOT/services/$svc" >/dev/null
-    # Images are side-loaded rather than pulled: they are not in any registry the
-    # cluster can reach. Manifests must therefore use imagePullPolicy:IfNotPresent.
+    # Side-loaded so a local cluster needs no registry round-trip, which is why
+    # the manifests set imagePullPolicy: IfNotPresent. A CI release instead
+    # pushes to ghcr.io and the cluster pulls from there.
     kind load docker-image "$image" --name "$CLUSTER_NAME" >/dev/null 2>&1
     ok "$svc:$tag"
   done
@@ -269,8 +255,8 @@ build_and_load_images() {
 cmd_up() {
   require_tools
   create_cluster
-  # Monitoring goes first: it registers the ServiceMonitor type, which Traefik
-  # and the Phase 4 application manifests both create.
+  # First: it registers the ServiceMonitor type, which Traefik and the
+  # application manifests both create.
   install_monitoring
   install_ingress
   install_rollouts
@@ -281,7 +267,7 @@ cmd_up() {
   echo
   ok "Platform ready."
   echo
-  echo "  Application namespace: $APP_NAMESPACE (empty until Phase 4 manifests are applied)"
+  echo "  Application namespace: $APP_NAMESPACE (empty until k8s/base is applied)"
   echo "  Ingress:               http://localhost"
   echo
   echo "  Open a UI with:"

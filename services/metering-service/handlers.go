@@ -11,15 +11,15 @@ import (
 
 const meterCount = 5
 
-// reading is one simulated electricity meter sample.
+// reading is one simulated electricity meter sample
 type reading struct {
 	MeterID   string    `json:"meterId"`
 	KWh       float64   `json:"kWh"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// readingsResponse carries the serving version alongside the payload so every
-// hop in the chain can be attributed to a specific release.
+// readingsResponse names the serving version, so every hop in the chain is
+// attributable to a specific release
 type readingsResponse struct {
 	Service string       `json:"service"`
 	Version string       `json:"version"`
@@ -42,8 +42,7 @@ type healthResponse struct {
 	Status  string `json:"status"`
 }
 
-// handleReadings returns randomised consumption readings. The business logic is
-// intentionally trivial — the infrastructure around it is the subject here.
+// handleReadings returns randomised consumption readings
 func (a *app) handleReadings(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	readings := make([]reading, 0, meterCount)

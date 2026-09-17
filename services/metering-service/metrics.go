@@ -9,10 +9,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// The version label is what lets the canary analysis isolate the new version's
-// traffic. Without it a success rate computed over the whole service blends
-// stable and canary together, and a canary that fails every request barely
-// moves the blended number while it only holds a small traffic weight.
+// The version label is what lets the analysis isolate the canary. Without it,
+// stable and canary blend into one ratio and a canary failing every request at
+// 10% weight still reads ~90% overall never crossing the threshold
 var (
 	requestsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
@@ -32,7 +31,7 @@ var (
 	)
 )
 
-// statusRecorder captures the status code on its way out to the client.
+// statusRecorder captures the status code on its way out to the client
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
@@ -43,8 +42,8 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
-// instrument records metrics for one route. The route label is the registered
-// pattern rather than the request URL, which keeps label cardinality bounded.
+// instrument records metrics for one route. The label is the registered pattern,
+// not the request URL, which keeps cardinality bounded
 func (a *app) instrument(route string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()

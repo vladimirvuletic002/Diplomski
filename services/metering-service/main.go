@@ -15,9 +15,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// version is baked in at build time with -ldflags "-X main.version=v1.0.0" so it
-// always matches the image tag it shipped in. The VERSION env var overrides it
-// for local development, where there is no build pipeline to do the baking.
 var version = "dev"
 
 const (
@@ -26,10 +23,9 @@ const (
 )
 
 type app struct {
-	cfg config
-	log *slog.Logger
-	// randFloat is injectable so fault injection is deterministic under test.
-	randFloat func() float64
+	cfg       config
+	log       *slog.Logger
+	randFloat func() float64 // injectable so fault injection is deterministic in tests
 }
 
 func main() {
@@ -78,9 +74,8 @@ func run() error {
 		stop()
 	}
 
-	// Draining matters for the rollout: pods are terminated every time a canary
-	// scales down, and cutting in-flight requests would surface as 5xx that the
-	// analysis reads as a bad release.
+	// Canary steps terminate pods constantly; dropping in-flight requests would
+	// surface as 5xx and read as a bad release
 	logger.Info("shutdown signal received, draining connections")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
@@ -95,10 +90,6 @@ func run() error {
 func (a *app) routes() http.Handler {
 	mux := http.NewServeMux()
 
-	// Only business traffic is instrumented and fault-injected. Probe and scrape
-	// traffic is excluded on purpose: kubelet probes are frequent and always
-	// succeed, so counting them would dilute the success rate that decides
-	// whether a release is rolled back.
 	mux.Handle("GET /{$}", a.instrument("/", a.injectFaults(http.HandlerFunc(a.handleReadings))))
 	mux.Handle("GET /healthz", http.HandlerFunc(a.handleHealthz))
 	mux.Handle("GET /metrics", promhttp.Handler())

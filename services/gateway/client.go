@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// aggregationClient talks to aggregation-service.
+// aggregationClient talks to aggregation-service
 type aggregationClient struct {
 	baseURL string
 	http    *http.Client
@@ -21,9 +21,7 @@ func newAggregationClient(baseURL string, timeout time.Duration) *aggregationCli
 	}
 }
 
-// upstreamAggregate mirrors aggregation-service's response, including the
-// version it reports for its own upstream. Carrying that nested version through
-// is what lets the gateway assemble the full chain.
+// upstreamAggregate mirrors aggregation's response
 type upstreamAggregate struct {
 	Service  string `json:"service"`
 	Version  string `json:"version"`
@@ -34,9 +32,8 @@ type upstreamAggregate struct {
 	Data aggregateData `json:"data"`
 }
 
-// fetchAggregate retrieves the aggregate from aggregation-service. The request
-// context is propagated so a cancelled client request does not leave the call
-// hanging.
+// fetchAggregate calls aggregation-service, propagating the request context so a
+// cancelled client request does not leave the call hanging
 func (c *aggregationClient) fetchAggregate(ctx context.Context) (upstreamAggregate, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/", nil)
 	if err != nil {
@@ -51,10 +48,9 @@ func (c *aggregationClient) fetchAggregate(ctx context.Context) (upstreamAggrega
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// aggregation-service reports itself and its own upstream even on an error,
-		// so decode best-effort and keep whatever identity survived. Without this a
-		// failing release drops out of the chain and the dashboard cannot show
-		// which version produced the errors.
+		// aggregation reports itself and its upstream even on an error, so decode
+		// best-effort and keep whatever identity survived. Without this a failing
+		// release drops out of the chain and the dashboard cannot name it
 		var partial upstreamAggregate
 		_ = json.NewDecoder(resp.Body).Decode(&partial)
 		return partial, fmt.Errorf("aggregation-service returned %s", resp.Status)

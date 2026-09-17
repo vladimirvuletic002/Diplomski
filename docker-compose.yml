@@ -1,9 +1,4 @@
-# Local development stack — the three services, one version each.
-
-#   docker compose up --build     start everything
-#   docker compose down           stop and remove
-#
-# Then open http://localhost:8080
+# `docker compose up --build`, then open http://localhost:8080
 
 name: diplomski
 
@@ -17,11 +12,8 @@ services:
     environment:
       PORT: 8081
       LOG_LEVEL: info
-      # Fault injection stays off by default. To make this service faulty without
-      # touching the others, recreate just it with the variable set:
-      #   ERROR_RATE=0.3 docker compose up -d --force-recreate metering-service
-      # The image is unchanged — a faulty release is configuration, never a
-      # separate build. Restore it with the same command minus the variable.
+      # Off by default. Recreate just this service to make it faulty, same image, config only:
+      # ERROR_RATE=0.3 docker compose up -d --force-recreate metering-service
       ERROR_RATE: ${ERROR_RATE:-0}
       EXTRA_LATENCY_MS: ${EXTRA_LATENCY_MS:-0}
     expose:
@@ -36,9 +28,6 @@ services:
     environment:
       PORT: 8082
       LOG_LEVEL: info
-      # Addressed by compose DNS, not localhost. In the cluster this becomes a
-      # Service name; the code needs no change either way because the upstream is
-      # configuration rather than a hardcoded host.
       METERING_URL: http://metering-service:8081
       UPSTREAM_TIMEOUT_MS: 2000
       ERROR_RATE: ${ERROR_RATE:-0}

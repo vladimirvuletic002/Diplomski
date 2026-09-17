@@ -6,8 +6,8 @@
 #   ./scripts/setup-velero.sh status   show what is installed
 #   ./scripts/setup-velero.sh uninstall
 #
-# Kept out of bootstrap.sh: Velero is the optional phase, and this costs roughly
-# 400 MiB and two minutes that most cluster rebuilds do not need.
+# Kept out of bootstrap.sh: optional, and it costs ~400 MiB and two minutes that
+# most cluster rebuilds do not need.
 
 set -euo pipefail
 
@@ -49,8 +49,8 @@ install_minio() {
 }
 
 write_credentials() {
-  # Velero reads S3 credentials from a file. Written at install time from the
-  # same values the MinIO Secret holds, and git-ignored.
+  # Velero reads S3 credentials from a file. Written here from the same values
+  # the MinIO Secret holds, and git-ignored.
   local user pass
   user=$(kubectl get secret minio-credentials -n velero -o jsonpath='{.data.root-user}' | base64 -d)
   pass=$(kubectl get secret minio-credentials -n velero -o jsonpath='{.data.root-password}' | base64 -d)
@@ -81,8 +81,8 @@ install_velero() {
   ok "Velero installed"
 }
 
-# A BackupStorageLocation stuck Unavailable is the usual symptom of a wrong
-# s3Url or a missing bucket, and backups fail confusingly rather than loudly.
+# Stuck Unavailable usually means a wrong s3Url or a missing bucket — backups
+# then fail confusingly rather than loudly.
 verify_backup_location() {
   info "Checking the backup storage location"
   for _ in $(seq 1 30); do

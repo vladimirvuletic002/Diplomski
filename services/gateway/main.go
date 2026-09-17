@@ -17,9 +17,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// version is baked in at build time with -ldflags "-X main.version=v1.0.0" so it
-// always matches the image tag it shipped in. The VERSION env var overrides it
-// for local development, where there is no build pipeline to do the baking.
 var version = "dev"
 
 //go:embed ui/index.html
@@ -35,8 +32,7 @@ type app struct {
 	log         *slog.Logger
 	aggregation *aggregationClient
 	ui          *template.Template
-	// randFloat is injectable so fault injection is deterministic under test.
-	randFloat func() float64
+	randFloat   func() float64 // injectable so fault injection is deterministic in tests
 }
 
 func main() {
@@ -97,9 +93,8 @@ func run() error {
 		stop()
 	}
 
-	// Draining matters for the rollout: pods are terminated every time a canary
-	// scales down, and cutting in-flight requests would surface as 5xx that the
-	// analysis reads as a bad release.
+	// Canary steps terminate pods constantly; dropping in-flight requests would
+	// surface as 5xx and read as a bad release.
 	logger.Info("shutdown signal received, draining connections")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
@@ -114,10 +109,8 @@ func run() error {
 func (a *app) routes() http.Handler {
 	mux := http.NewServeMux()
 
-	// /api/summary is this service's business traffic and the signal the canary
-	// analysis reads. The dashboard at / is deliberately left out of both metrics
-	// and fault injection: a faulty gateway release must still serve the page,
-	// otherwise the very UI meant to show the failure goes blank.
+	// The dashboard is left out of metrics and faults — a faulty release must
+	// still serve the page that shows the failure. /api/summary is the signal
 	mux.Handle("GET /{$}", http.HandlerFunc(a.handleUI))
 	mux.Handle("GET /api/summary", a.instrument("/api/summary", a.injectFaults(http.HandlerFunc(a.handleSummary))))
 	mux.Handle("GET /healthz", http.HandlerFunc(a.handleHealthz))

@@ -6,12 +6,11 @@
 #
 # Two halves, because they make different points:
 #
-#   1. The energy namespace — what the task statement asks for. Note that Argo CD
-#      could rebuild these objects from Git on its own; the backup matters for
-#      runtime state and for clusters where Git is not the source of truth.
-#   2. The Argo CD repository credential — deliberately kept out of Git, so Git
-#      cannot restore it. This project lost exactly this secret once, when the
-#      cluster was rebuilt for the Traefik migration.
+#   1. The energy namespace — what the task asks for. Argo CD could rebuild these
+#      from Git anyway; the backup matters for runtime state and for clusters
+#      where Git is not the source of truth.
+#   2. The Argo CD repository credential — kept out of Git, so Git cannot restore
+#      it. This project lost exactly that secret once, in the Traefik rebuild.
 #
 # Requires ./scripts/setup-velero.sh to have been run. Re-runnable.
 
@@ -45,8 +44,8 @@ objects() { kubectl get all,traefikservice,ingressroute,middleware,podmonitor,an
 chain() { curl -s -m 10 http://localhost/api/summary 2>/dev/null \
             | python3 -c 'import sys,json;d=json.load(sys.stdin);print(" -> ".join(h["service"]+"@"+h["version"] for h in d["chain"]))' 2>/dev/null; }
 
-# Read from the Backup object rather than `velero backup describe --details`:
-# that fetches from S3, and the in-cluster MinIO hostname does not resolve here.
+# From the Backup object rather than `velero backup describe --details`, which
+# fetches from S3 — and the in-cluster MinIO hostname does not resolve here.
 counts() {
   kubectl get "$1" "$2" -n velero -o json 2>/dev/null | python3 -c '
 import sys, json
@@ -75,8 +74,8 @@ echo
 info "Destroying the '$NS' namespace"
 kubectl delete namespace "$NS" >/dev/null 2>&1
 ok "deleted"
-# Argo CD is configured selfHeal:false, so it reports the drift and waits rather
-# than rebuilding. That keeps the restore attributable to Velero.
+# selfHeal is false, so Argo CD reports the drift and waits rather than
+# rebuilding — which keeps the restore attributable to Velero.
 sleep 10
 bad "application unreachable (HTTP $(curl -s -o /dev/null -w '%{http_code}' -m 5 http://localhost/api/summary 2>/dev/null))"
 echo "     Argo CD: $(kubectl get application energy -n argocd -o jsonpath='{.status.sync.status}/{.status.health.status}' 2>/dev/null) — it reports the loss but does not rebuild"

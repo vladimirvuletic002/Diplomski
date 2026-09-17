@@ -5,10 +5,9 @@
 #
 #   ./scripts/demo-bad-release.sh
 #
-# v3.0.0 is a clean build of the same source; the fault comes from ERROR_RATE=0.3
-# in its pod template. It needs its own version tag because the analysis filters
-# metrics by version — reusing the stable tag would blend the failing canary into
-# the healthy stable traffic and the query would never cross its threshold.
+# v3.0.0 is a clean build of the same source, made faulty by ERROR_RATE=0.3 in its
+# pod template. It needs its own version tag: the analysis filters by version, and
+# reusing the stable tag would blend the failing canary into healthy traffic.
 #
 # Re-runnable: resets to a healthy baseline first and restores it at the end.
 
@@ -68,9 +67,9 @@ except Exception:
     [ -n "$out" ] && { echo "$out"; return; }
     sleep 1
   done
-  # Applying the manifest strips the weights (arrays are replaced wholesale on a
-  # custom resource) and the controller only rewrites them once a rollout runs.
-  # Harmless while stable: both Services then select the same pods.
+  # Applying the manifest strips the weights — arrays are replaced wholesale on a
+  # custom resource — and the controller only rewrites them during a rollout.
+  # Harmless while stable, since both Services then select the same pods.
   echo "—"
 }
 
@@ -84,8 +83,8 @@ wait_healthy() {
 
 restore() {
   info "Restoring the healthy baseline"
-  # Re-applying the committed manifest also removes ERROR_RATE, which a strategic
-  # merge patch cannot do (it merges env entries, it does not delete them).
+  # Re-applying also clears ERROR_RATE, which a merge patch cannot do — it merges
+  # env entries rather than deleting them.
   kubectl apply -f "$MANIFEST" >/dev/null
   sleep 2
   kubectl argo rollouts promote "$ROLLOUT" -n "$NS" --full >/dev/null 2>&1 || true
@@ -115,10 +114,9 @@ echo
 PREV_AR=$(kubectl get analysisrun -n "$NS" --sort-by=.metadata.creationTimestamp --no-headers 2>/dev/null | tail -1 | awk '{print $1}')
 
 info "Deploying faulty $FAULTY (ERROR_RATE=$ERROR_RATE — 30% of its requests will fail)"
-# JSON patch, not strategic merge: Rollout is a custom resource, and strategic
-# merge is only supported for built-in types. The env entry is appended rather
-# than the whole list replaced; the baseline step above re-applies the manifest,
-# so ERROR_RATE is never present twice.
+# JSON patch, not strategic merge: Rollout is a custom resource. The env entry is
+# appended rather than the list replaced, and the baseline reset above re-applies
+# the manifest, so ERROR_RATE is never present twice.
 kubectl patch rollout "$ROLLOUT" -n "$NS" --type=json -p "[
   {\"op\": \"replace\", \"path\": \"/metadata/labels/version\", \"value\": \"$FAULTY\"},
   {\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/image\", \"value\": \"$REGISTRY/$ROLLOUT:$FAULTY\"},

@@ -5,10 +5,7 @@ import (
 	"net/http"
 )
 
-// summaryResponse reports the version of every service that took part in
-// serving the request, in call order. The chain is a list rather than named
-// fields so the UI can render it generically: whichever service is mid-canary,
-// the version split shows up without the UI knowing which one to expect.
+// summaryResponse reports every service that took part, in call order
 type summaryResponse struct {
 	Service string        `json:"service"`
 	Version string        `json:"version"`
@@ -42,15 +39,15 @@ type healthResponse struct {
 	Status  string `json:"status"`
 }
 
-// handleSummary fans out to aggregation-service and assembles the version chain.
+// handleSummary fans out to aggregation-service and assembles the version chain
 func (a *app) handleSummary(w http.ResponseWriter, r *http.Request) {
 	self := chainHop{Service: a.cfg.serviceName, Version: a.cfg.version}
 
 	upstream, err := a.aggregation.fetchAggregate(r.Context())
 	if err != nil {
-		// Reported as 502 so an upstream failure registers as a 5xx here too: a
-		// bad release anywhere in the chain should degrade the success rate of
-		// everything in front of it rather than hiding behind a 200.
+		// 502 so the failure registers as a 5xx here too: a bad release anywhere
+		// in the chain should degrade everything in front of it, not hide behind
+		// a 200.
 		a.log.Error("upstream call failed", "upstream", a.cfg.aggregationURL, "error", err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{
 			Service: a.cfg.serviceName,
@@ -69,10 +66,8 @@ func (a *app) handleSummary(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// buildChain assembles the version chain from whatever the upstream managed to
-// report. Hops are included only once they have identified themselves, so a
-// chain that stops early means the next service never answered at all — as
-// opposed to answering with an error, which still yields a named hop.
+// buildChain includes a hop only once it has identified itself, so a chain that
+// stops early means that service never answered at all
 func buildChain(self chainHop, upstream upstreamAggregate) []chainHop {
 	chain := []chainHop{self}
 	if upstream.Service == "" {

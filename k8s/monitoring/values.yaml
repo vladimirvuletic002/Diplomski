@@ -1,4 +1,4 @@
-# Overrides for the kube-prometheus-stack chart. See CLAUDE.md §9-§10.
+# Overrides for the kube-prometheus-stack chart
 
 alertmanager:
   enabled: false
@@ -10,8 +10,6 @@ grafana:
 
 prometheus:
   prometheusSpec:
-    # Chart default is true, which restricts discovery to monitors labelled with
-    # this Helm release name; unlabelled ones are then ignored without any error.
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
     ruleSelectorNilUsesHelmValues: false

@@ -35,12 +35,11 @@ preflight() {
     || die "http://localhost is not serving — check Traefik and the IngressRoutes"
 }
 
-# Image tag and the version label move together: the analysis reads the label to
-# decide which version to measure, so bumping only the image would leave it
-# measuring the previous release.
+# Image and version label move together — the analysis reads the label to decide
+# what to measure, so bumping only the image would score the previous release.
 #
-# JSON patch, not strategic merge: Rollout is a custom resource, and the API
-# server only supports strategic merge for built-in types.
+# JSON patch, not strategic merge: Rollout is a custom resource, and strategic
+# merge only works for built-in types.
 set_version() {
   kubectl patch rollout "$ROLLOUT" -n "$NS" --type=json -p "[
     {\"op\": \"replace\", \"path\": \"/metadata/labels/version\", \"value\": \"$1\"},
@@ -70,9 +69,9 @@ except Exception:
     [ -n "$out" ] && { echo "$out"; return; }
     sleep 1
   done
-  # Applying the manifest strips the weights (arrays are replaced wholesale on a
-  # custom resource) and the controller only rewrites them once a rollout runs.
-  # Harmless while stable: both Services then select the same pods.
+  # Applying the manifest strips the weights — arrays are replaced wholesale on a
+  # custom resource — and the controller only rewrites them during a rollout.
+  # Harmless while stable, since both Services then select the same pods.
   echo "—"
 }
 
@@ -82,8 +81,8 @@ start_load() {
   disown "$LOAD_PID" 2>/dev/null || true
 }
 
-# Samples several requests rather than one: at a 10% canary weight a single
-# request almost always lands on stable and shows nothing.
+# Several requests, not one: at 10% weight a single request almost always lands
+# on stable and shows nothing.
 observed_split() {
   local n=12
   for _ in $(seq 1 $n); do

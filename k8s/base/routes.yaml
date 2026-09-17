@@ -1,6 +1,4 @@
-# Traefik routing. See CLAUDE.md §10 (2026-08-04, 2026-08-05).
-
-# Strips /metering before forwarding, so metering-service still serves at "/".
+# Strips /metering before forwarding, so metering-service still serves at "/"
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -11,10 +9,7 @@ spec:
     prefixes:
       - /metering
 ---
-# aggregation-service calls http://traefik.traefik.svc.cluster.local/metering,
-# so the request passes through Traefik and lands on the weighted TraefikService
-# whose weights Argo Rollouts controls. Higher priority than the gateway's
-# catch-all route below.
+# aggregation-service calls Traefik at /metering, so the hop passes through the weighted TraefikService and the canary weights apply to internal traffic
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -33,7 +28,7 @@ spec:
         - name: metering-service-weighted
           kind: TraefikService
 ---
-# The single entry point: http://localhost reaches the gateway.
+# The single entry point: http://localhost reaches the gateway
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:

@@ -4,9 +4,6 @@ metadata:
   name: gateway
   namespace: energy
   labels:
-    # Bumped with the image by the release workflow. Only read by an
-    # AnalysisTemplate when this service is canaried, but present on every
-    # service so the workflow can treat them uniformly.
     version: v1.0.0
 spec:
   replicas: 2
@@ -29,8 +26,7 @@ spec:
           env:
             - name: PORT
               value: "8080"
-            # Straight to the ClusterIP: aggregation-service is not canaried, so
-            # there is no weighting to apply and no reason to add a Traefik hop.
+            # Straight to the ClusterIP: aggregation-service is not canaried, so there is no weighting to apply and no reason to add a Traefik hop
             - name: AGGREGATION_URL
               value: "http://aggregation-service:8082"
             - name: UPSTREAM_TIMEOUT_MS

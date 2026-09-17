@@ -10,9 +10,8 @@ import (
 	"time"
 )
 
-// config holds every runtime knob. All of it is env-driven so that one image can
-// behave differently per environment — in particular so the faulty v2 used in the
-// rollback demo is a configuration change rather than a separate build.
+// config is entirely env-driven, which is what makes the faulty release used in
+// the rollback demo a configuration change rather than a separate build.
 type config struct {
 	port         string
 	version      string
@@ -21,17 +20,14 @@ type config struct {
 	extraLatency time.Duration
 	logLevel     slog.Level
 
-	// aggregationURL is deliberately configuration rather than a hardcoded service
-	// name: it leaves the choice between calling aggregation through the cluster
-	// ingress (so a canary weight applies to internal traffic) or straight to a
-	// ClusterIP as a deployment-time decision, not a code change.
+	// Configurable, so routing this call through the ingress — where canary
+	// weights apply — stays a deployment decision rather than a code change.
 	aggregationURL  string
 	upstreamTimeout time.Duration
 }
 
-// loadConfig reads configuration from the environment and fails fast on bad
-// input: a service that silently ignores a typo'd ERROR_RATE would quietly
-// invalidate the canary analysis.
+// loadConfig fails fast on bad input: silently ignoring a typo'd ERROR_RATE
+// would quietly invalidate the canary analysis.
 func loadConfig() (config, error) {
 	errorRate, err := envFloat("ERROR_RATE", 0)
 	if err != nil {
@@ -74,7 +70,7 @@ func loadConfig() (config, error) {
 		errorRate:       errorRate,
 		extraLatency:    time.Duration(latencyMS) * time.Millisecond,
 		logLevel:        logLevel,
-		aggregationURL:     strings.TrimRight(aggregationURL, "/"),
+		aggregationURL:  strings.TrimRight(aggregationURL, "/"),
 		upstreamTimeout: time.Duration(timeoutMS) * time.Millisecond,
 	}, nil
 }

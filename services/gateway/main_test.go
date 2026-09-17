@@ -29,7 +29,7 @@ func testApp(cfg config, upstreamURL string) *app {
 	}
 }
 
-// fakeAggregation stands in for aggregation-service.
+// fakeAggregation stands in for aggregation-service
 func fakeAggregation(t *testing.T, status int, body string) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -84,8 +84,7 @@ func TestSummaryReturnsFullVersionChain(t *testing.T) {
 	}
 }
 
-// When nothing upstream answers at all, the chain is just the gateway — there is
-// no version information to report beyond its own.
+// When nothing upstream answers at all, the chain is just the gateway
 func TestUnreachableUpstreamYieldsGatewayOnlyChain(t *testing.T) {
 	a := testApp(config{version: "v1.0.0"}, "http://127.0.0.1:1")
 
@@ -144,8 +143,7 @@ func TestFailedChainStillCarriesEveryVersion(t *testing.T) {
 	}
 }
 
-// A gateway that injects its own fault must still name itself, so a faulty
-// gateway release is attributable to its version.
+// A gateway that injects its own fault must still name itself
 func TestInjectedFaultNamesGatewayVersion(t *testing.T) {
 	upstream := fakeAggregation(t, http.StatusOK, okUpstreamBody)
 	a := testApp(config{errorRate: 1, version: "v2.0.0"}, upstream.URL)
@@ -163,8 +161,7 @@ func TestInjectedFaultNamesGatewayVersion(t *testing.T) {
 	}
 }
 
-// The dashboard must keep rendering even when the release is completely broken —
-// it is the instrument for watching the failure, not part of the failure.
+// The dashboard must keep rendering even when the release is completely broken
 func TestUIStaysUpUnderTotalFault(t *testing.T) {
 	a := testApp(config{errorRate: 1, version: "v1.0.0"}, "http://127.0.0.1:1")
 	a.randFloat = func() float64 { return 0 }
@@ -195,9 +192,7 @@ func TestFaultInjectionAppliesToAPIOnly(t *testing.T) {
 	}
 }
 
-// Probe and scrape endpoints must survive a fully faulty configuration,
-// otherwise a bad release would be restarted or go unobserved instead of
-// being detected and rolled back.
+// Probe and scrape endpoints must survive a fully faulty configuration
 func TestHealthzAndMetricsIgnoreFaults(t *testing.T) {
 	a := testApp(config{errorRate: 1}, "http://127.0.0.1:1")
 	a.randFloat = func() float64 { return 0 }

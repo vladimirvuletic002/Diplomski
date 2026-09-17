@@ -10,9 +10,6 @@ import (
 	"time"
 )
 
-// config holds every runtime knob. All of it is env-driven so that one image can
-// behave differently per environment — in particular so the faulty v2 used in the
-// rollback demo is a configuration change rather than a separate build.
 type config struct {
 	port         string
 	version      string
@@ -21,17 +18,11 @@ type config struct {
 	extraLatency time.Duration
 	logLevel     slog.Level
 
-	// meteringURL is deliberately configuration rather than a hardcoded service
-	// name: it leaves the choice between calling metering through the cluster
-	// ingress (so a canary weight applies to internal traffic) or straight to a
-	// ClusterIP as a deployment-time decision, not a code change.
 	meteringURL     string
 	upstreamTimeout time.Duration
 }
 
-// loadConfig reads configuration from the environment and fails fast on bad
-// input: a service that silently ignores a typo'd ERROR_RATE would quietly
-// invalidate the canary analysis.
+// loadConfig fails fast on bad input
 func loadConfig() (config, error) {
 	errorRate, err := envFloat("ERROR_RATE", 0)
 	if err != nil {

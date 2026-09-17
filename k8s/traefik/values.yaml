@@ -1,5 +1,4 @@
-# Overrides for the Traefik chart. See CLAUDE.md §9-§10.
-
+# Overrides for the Traefik chart.
 # kind maps host 80/443 onto the node container, so Traefik must bind those
 # ports on the node itself. There is no LoadBalancer implementation in kind.
 ports:
@@ -12,8 +11,7 @@ service:
   type: ClusterIP
 
 providers:
-  # kubernetesCRD serves TraefikService, which is what Argo Rollouts adjusts to
-  # shift canary weight.
+  # kubernetesCRD serves TraefikService, which is what Argo Rollouts adjusts to shift canary weight.
   kubernetesCRD:
     enabled: true
   kubernetesIngress:

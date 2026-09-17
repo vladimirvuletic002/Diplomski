@@ -7,17 +7,16 @@ import (
 	"time"
 )
 
-// reading mirrors one metering-service sample.
+// one metering-service sample
 type reading struct {
 	MeterID   string    `json:"meterId"`
 	KWh       float64   `json:"kWh"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// aggregateResponse reports both this service's version and the version of the
-// metering-service instance that served the underlying data. Surfacing the
-// upstream version is what makes independent versioning of dependent services
-// visible: the chain can show v1 aggregation reading from v2 metering.
+// aggregateResponse names this service's version and the metering version that
+// served the data, which is what makes independent versioning visible: v1
+// aggregation reading from v2 metering
 type aggregateResponse struct {
 	Service  string        `json:"service"`
 	Version  string        `json:"version"`
@@ -41,8 +40,7 @@ type aggregateData struct {
 type errorResponse struct {
 	Service string `json:"service"`
 	Version string `json:"version"`
-	// Upstream is reported whenever the upstream identified itself, including on
-	// failure, so a bad release stays attributable to a specific version.
+	// Reported on failure too, so a bad release stays attributable.
 	Upstream upstreamInfo `json:"upstream"`
 	Error    string       `json:"error"`
 }
@@ -53,13 +51,10 @@ type healthResponse struct {
 	Status  string `json:"status"`
 }
 
-// handleAggregate fetches readings from metering-service and derives totals.
+// handleAggregate fetches readings from metering-service and derives totals
 func (a *app) handleAggregate(w http.ResponseWriter, r *http.Request) {
 	upstream, err := a.metering.fetchReadings(r.Context())
 	if err != nil {
-		// A failing upstream is reported as 502 so it registers as a 5xx in this
-		// service's metrics too: a bad metering release should be visible in the
-		// success rate of everything that depends on it.
 		a.log.Error("upstream call failed", "upstream", a.cfg.meteringURL, "error", err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{
 			Service: a.cfg.serviceName,
@@ -84,8 +79,7 @@ func (a *app) handleAggregate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// computeAggregate derives totals from readings. Kept pure so it can be tested
-// without a server or an upstream.
+// computeAggregate derives totals from readings
 func computeAggregate(readings []reading) aggregateData {
 	if len(readings) == 0 {
 		return aggregateData{}

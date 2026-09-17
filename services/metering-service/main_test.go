@@ -10,8 +10,6 @@ import (
 	"testing"
 )
 
-// mustSeededRand returns a deterministic source so the statistical assertion
-// below cannot flake. Safe here because the test drives it from one goroutine.
 func mustSeededRand() func() float64 {
 	return rand.New(rand.NewPCG(1, 2)).Float64
 }
@@ -30,8 +28,8 @@ func testApp(cfg config) *app {
 	}
 }
 
-// Every response must name the version that served it — the whole demo rests on
-// being able to attribute a response to a release.
+// Every response must name the version that served it, the whole demo rests on
+// being able to attribute a response to a release
 func TestReadingsResponseCarriesVersion(t *testing.T) {
 	a := testApp(config{version: "v1.2.3"})
 
@@ -87,7 +85,7 @@ func TestFaultInjection(t *testing.T) {
 
 // Probe and scrape endpoints must survive a fully faulty configuration,
 // otherwise a bad release would be restarted or go unobserved instead of
-// being detected and rolled back.
+// being detected and rolled back
 func TestHealthzAndMetricsIgnoreFaults(t *testing.T) {
 	a := testApp(config{errorRate: 1})
 	a.randFloat = func() float64 { return 0 }

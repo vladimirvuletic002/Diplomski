@@ -86,7 +86,7 @@ func TestComputeAggregate(t *testing.T) {
 }
 
 // The response must name both this service's version and the upstream's — that
-// pairing is what demonstrates independent versioning of dependent services.
+// pairing is what demonstrates independent versioning of dependent services
 func TestAggregateReportsBothVersions(t *testing.T) {
 	upstream := fakeMetering(t, http.StatusOK, okUpstreamBody)
 	a := testApp(config{version: "v1.2.3"}, upstream.URL)
@@ -132,7 +132,7 @@ func TestUpstreamFailureBecomesBadGateway(t *testing.T) {
 
 // The version that failed is the single most important thing to report: a bad
 // release must stay attributable, so an upstream error body that names a version
-// has to survive into this service's own error response.
+// has to survive into this service's own error response
 func TestFailedUpstreamStillReportsItsVersion(t *testing.T) {
 	upstream := fakeMetering(t, http.StatusInternalServerError,
 		`{"service":"metering-service","version":"v2.0.0","error":"injected fault"}`)

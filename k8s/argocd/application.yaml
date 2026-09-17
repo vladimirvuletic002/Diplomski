@@ -7,23 +7,15 @@ spec:
   project: default
 
   source:
-    # Must match the credential secret's url byte for byte, .git included:
-    # Argo CD keys credentials by URL string.
     repoURL: https://github.com/vladimirvuletic002/Diplomski.git
     targetRevision: main
-    # Only the application manifests. Traefik, Prometheus and Argo Rollouts are
-    # installed by scripts/bootstrap.sh and deliberately not managed here.
+    # Application manifests only platform is installed by bootstrap.sh
     path: k8s/base
 
   destination:
     server: https://kubernetes.default.svc
     namespace: energy
 
-  # Argo Rollouts writes traffic weights into the TraefikService at runtime.
-  # spec.weighted.services carries no x-kubernetes-list-type marker, so the API
-  # server treats it as an atomic list: server-side apply cannot split ownership
-  # of weight from the rest of the entry. Ignoring just the weight field leaves
-  # Argo CD managing the service names and ports.
   ignoreDifferences:
     - group: traefik.io
       kind: TraefikService
@@ -33,13 +25,9 @@ spec:
   syncPolicy:
     automated:
       prune: true
-      # Off on purpose: the demo scripts patch the Rollout directly, and
-      # self-heal would revert them mid-demonstration. Argo CD still applies
-      # everything that lands in Git.
+      # Off because demo scripts patch the Rollout directly and self-heal would revert them mid-demo
       selfHeal: false
     syncOptions:
-      # Without this, ignoreDifferences only suppresses the OutOfSync report and
-      # a sync still overwrites the weights — reporting success while breaking
-      # the traffic split.
+      # Without this, ignoreDifferences only hides the OutOfSync report and a sync still wipes the weights, success reported, traffic split broken
       - RespectIgnoreDifferences=true
       - CreateNamespace=true
